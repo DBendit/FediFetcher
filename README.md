@@ -5,13 +5,15 @@ This GitHub repository provides a simple script that can pull missing posts into
 1. It can pull missing remote replies to posts that are already on your server into your server. Specifically, it can
    1. fetch missing replies to posts that users on your instance have already replied to,
    2. fetch missing replies to the most recent posts in your home timeline,
-   3. fetch missing replies to your bookmarks.
-   4. fetch missing replies to your favourites.
+   3. fetch missing replies to your bookmarks,
+   4. fetch missing replies to your favourites,
+   5. fetch missing replies to the most recent posts in your lists.
 2. It can also backfill profiles on your instance. In particular it can
    1. fetch missing posts from users that have recently appeared in your notifications,
-   1. fetch missing posts from users that you have recently followed,
-   2. fetch missing posts form users that have recently followed you,
-   3. fetch missing posts form users that have recently sent you a follow request.
+   2. fetch missing posts from users that you have recently followed,
+   3. fetch missing posts from users that have recently followed you,
+   4. fetch missing posts from users that have recently sent you a follow request,
+   5. fetch missing posts from users that have recently been added to your lists.
 
 Each part of this script is fully configurable, and you can completely disable parts that you are not interested in.
 
@@ -61,10 +63,10 @@ Run FediFetcher as a GitHub Action, a cron job, or a container:
    2.  Click New Repository Secret
    3.  Supply the Name `ACCESS_TOKEN` and provide the Token generated above as Secret
 3. Create a file called `config.json` with your [configuration options](#configuration-options) in the repository root. **Do NOT include the Access Token in your `config.json`!**
-4. Finally go to the Actions tab and enable the action. The action should now automatically run approximately once every 10 min. 
+4. Finally go to the Actions tab and enable the action. The action should now automatically run approximately once every 10 min.
 
 > **Note**
-> 
+>
 > Keep in mind that [the schedule event can be delayed during periods of high loads of GitHub Actions workflow runs](https://docs.github.com/en/actions/using-workflows/events-that-trigger-workflows#schedule).
 
 #### To run FediFetcher as a cron job:
@@ -73,13 +75,13 @@ Run FediFetcher as a GitHub Action, a cron job, or a container:
 2. Install requirements: `pip install -r requirements.txt`
 3. Create a `json` file with [your configuration options](#configuration-options). You may wish to store this in the `./artifacts` directory, as that directory is `.gitignore`d
 4. Then simply run this script like so: `python find_posts.py -c=./artifacts/config.json`.
- 
+
 If desired, all configuration options can be provided as command line flags, instead of through a JSON file. An [example script](./examples/FediFetcher.sh) can be found in the `examples` folder.
 
 When using a cronjob, we are using file based locking to avoid multiple overlapping executions of the script. The timeout period for the lock can be configured using `lock-hours`.
 
 > **Note**
-> 
+>
 > If you are running FediFetcher locally, my recommendation is to run it manually once, before turning on the cron job: The first run will be significantly slower than subsequent runs, and that will help you prevent overlapping during that first run.
 
 #### To run FediFetcher from a container:
@@ -90,7 +92,7 @@ FediFetcher is also available in a pre-packaged container, [FediFetcher](https:/
 2. Run the container, passing the configurations options as command line arguments: `docker run -it ghcr.io/nanos/fedifetcher:latest --access-token=<TOKEN> --server=<SERVER>`
 
 > **Note**
-> 
+>
 > The same rules for running this as a cron job apply to running the container: don't overlap any executions.
 
 Persistent files are stored in `/app/artifacts` within the container, so you may want to map this to a local folder on your system.
@@ -99,12 +101,16 @@ An [example Kubernetes CronJob](./examples/k8s-cronjob.yaml) for running the con
 
 An [example Docker Compose Script](./examples/docker-compose.yaml) for running the container periodically is included in the `examples` folder.
 
+#### To run FediFetcher with systemd-timer:
+
+See [systemd.md](./examples/systemd.md)
+
 ### Configuration options
 
 FediFetcher has quite a few configuration options, so here is my quick configuration advice, that should probably work for most people:
 
 > **Warning**
-> 
+>
 > **Do NOT** include your `access-token` in the `config.json` when running FediFetcher as GitHub Action. When running FediFetcher as GitHub Action **ALWAYS** [set the Access Token as an Action Secret](#to-run-fedifetcher-as-a-github-action).
 
 ```json
@@ -137,6 +143,9 @@ Option | Required? | Notes |
 | `reply-interval-in-hours` | No | Provide to fetch remote replies to posts that have received replies from users on your own instance. Determines how far back in time we'll go to find posts that have received replies. You must be administrator on your instance to use this option, and this option is not supported on Pleroma / Akkoma and its forks. Recommend value: `0` (disabled). Requires an access token with `admin:read:accounts`.
 |`backfill-with-context` | No | Set to `0` to disable fetching remote replies while backfilling profiles. This is enabled by default, but you can disable it, if it's too slow for you.
 |`backfill-mentioned-users` | No | Set to `0` to disable backfilling any mentioned users when fetching the home timeline. This is enabled by default, but you can disable it, if it's too slow for you.
+| `from-lists`| No | Set to `1` to fetch missing replies and/or backfill account from your lists. This is disabled by default. Requires an access token with `read:lists` scope. |
+| `max-list-length` | No | Determines how many posts we'll fetch replies for in each list. Default value: `100`. This will be ignored, unless you also provide `from-lists = 1`. Set to `0` if you only want to backfill profiles in lists. |
+| `max-list-accounts` | No | Determines how many accounts we'll backfill for in each list. Default value: `10`. This will be ignored, unless you also provide `from-lists = 1`. Set to `0` if you only want to fetch replies in lists. |
 | `remember-users-for-hours` | No | How long between back-filling attempts for non-followed accounts? Defaults to `168`, i.e. one week.
 | `remember-hosts-for-days` | No | How long should FediFetcher cache host info for? Defaults to `30`.
 | `http-timeout` | No | The timeout for any HTTP requests to the Mastodon API in seconds. Defaults to `5`.
@@ -146,10 +155,12 @@ Option | Required? | Notes |
 | `on-start` | No | Optionally provide a callback URL that will be pinged when processing is starting. A query parameter `rid={uuid}` will automatically be appended to uniquely identify each execution. This can be used to monitor your script using a service such as healthchecks.io.
 | `on-done` | No | Optionally provide a callback URL that will be called when processing is finished.  A query parameter `rid={uuid}` will automatically be appended to uniquely identify each execution. This can be used to monitor your script using a service such as healthchecks.io.
 | `on-fail` | No | Optionally provide a callback URL that will be called when processing has failed.  A query parameter `rid={uuid}` will automatically be appended to uniquely identify each execution. This can be used to monitor your script using a service such as healthchecks.io.
+|`log-level` | No | The severity of messages to log. Possible values are `DEBUG`, `INFO`, `WARNING`, `ERROR`, and `CRITICAL`. Defaults to `DEBUG`. |
+|`log-format` | No | The format used for logging. See the [documentation](https://docs.python.org/3/library/logging.html) for details. Defaults to `%(asctime)s: %(message)s` |
 
 ### Multi User support
 
-If you wish to [run FediFetcher for multiple users on your instance](https://blog.thms.uk/2023/04/muli-user-support-for-fedifetcher?utm_source=github), you can supply the `access-token` as an array, with different access tokens for different users. That will allow you to fetch replies and/or backfill profiles for multiple users on your account. 
+If you wish to [run FediFetcher for multiple users on your instance](https://blog.thms.uk/2023/04/muli-user-support-for-fedifetcher?utm_source=github), you can supply the `access-token` as an array, with different access tokens for different users. That will allow you to fetch replies and/or backfill profiles for multiple users on your account.
 
 This is only supported when running FediFetcher as cron job, or container. Multi-user support is not available when running FediFetcher as GitHub Action.
 
@@ -157,7 +168,7 @@ This is only supported when running FediFetcher as cron job, or container. Multi
 
  - For all actions, your access token must include these scopes:
    - `read:search`
-   - `read:statuses` 
+   - `read:statuses`
    - `read:accounts`
  - If you are supplying `reply-interval-in-hours` you must additionally enable this scope:
    - `admin:read:accounts`
@@ -169,6 +180,8 @@ This is only supported when running FediFetcher as cron job, or container. Multi
    - `read:favourites`
  - If you are supplying `from-notifications` you must additionally enable this scope:
    - `read:notifications`
+ - If you are supplying `from-lists` you must additionally enable this scope:
+   - `read:lists`
 
 ## Acknowledgments
 
